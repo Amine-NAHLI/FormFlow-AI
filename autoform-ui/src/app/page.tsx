@@ -107,15 +107,50 @@ export default function Home() {
       });
       
       const data = await response.json();
-      
-      setLogs(prev => prev.map(log => 
-        log.id === logId 
-          ? { ...log, status: data.success ? 'success' : 'failed', success: data.success } 
-          : log
-      ));
+      if (data.success) {
+        setLogs(prev => {
+          const newLogs = prev.filter(log => log.id !== logId);
+          setActiveLogIndex(current => Math.max(0, Math.min(current, newLogs.length - 1)));
+          return newLogs;
+        });
+      } else {
+        setLogs(prev => prev.map(log => log.id === logId ? { ...log, status: 'failed' } : log));
+      }
     } catch (err) {
       console.error(err);
-      setLogs(prev => prev.map(log => log.id === logId ? { ...log, status: 'failed', success: false } : log));
+      setLogs(prev => prev.map(log => log.id === logId ? { ...log, status: 'failed' } : log));
+    }
+  };
+
+  const handleDelete = (logId: number) => {
+    setLogs(prev => {
+      const newLogs = prev.filter(log => log.id !== logId);
+      setActiveLogIndex(current => Math.max(0, Math.min(current, newLogs.length - 1)));
+      return newLogs;
+    });
+  };
+
+  const handleRegenerate = async (logId: number) => {
+    if (!apiKey || !formUrl) return;
+    setLogs(prev => prev.map(log => log.id === logId ? { ...log, status: 'regenerating' } : log));
+    
+    try {
+      const response = await fetch('/api/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey, formUrl, instructions, personaHistory: [], generateOnly: true })
+      });
+      const data = await response.json();
+      
+      if (data.success) {
+        setLogs(prev => prev.map(log => log.id === logId ? { 
+          ...log, status: 'pending', persona: data.persona, answers: data.answers, answersRaw: data.answersRaw 
+        } : log));
+      } else {
+        setLogs(prev => prev.map(log => log.id === logId ? { ...log, status: 'failed' } : log));
+      }
+    } catch (err) {
+      setLogs(prev => prev.map(log => log.id === logId ? { ...log, status: 'failed' } : log));
     }
   };
 
@@ -293,14 +328,36 @@ export default function Home() {
                         {logs[activeLogIndex].status === 'submitting' && (
                           <span className="px-2.5 py-1 bg-yellow-50 text-yellow-600 text-xs font-bold rounded-full animate-pulse">Envoi...</span>
                         )}
+                        {logs[activeLogIndex].status === 'regenerating' && (
+                          <span className="px-2.5 py-1 bg-slate-100 text-slate-600 text-xs font-bold rounded-full flex items-center gap-1 animate-pulse">
+                            <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                            Génération...
+                          </span>
+                        )}
                         {logs[activeLogIndex].status === 'pending' && (
-                          <button 
-                            onClick={() => handleManualSubmit(logs[activeLogIndex].id, logs[activeLogIndex].answersRaw)}
-                            className="px-3 py-1 bg-[#6D44F1] hover:bg-[#5b38d1] text-white text-xs font-bold rounded-full transition-colors flex items-center gap-1 shadow-sm"
-                          >
-                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
-                            Soumettre
-                          </button>
+                          <div className="flex items-center gap-1.5">
+                            <button 
+                              onClick={() => handleRegenerate(logs[activeLogIndex].id)}
+                              className="px-3 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold rounded-full transition-colors flex items-center gap-1 shadow-sm"
+                            >
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                              Refaire
+                            </button>
+                            <button 
+                              onClick={() => handleDelete(logs[activeLogIndex].id)}
+                              className="px-3 py-1 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-bold rounded-full transition-colors flex items-center gap-1 shadow-sm"
+                            >
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
+                              Supprimer
+                            </button>
+                            <button 
+                              onClick={() => handleManualSubmit(logs[activeLogIndex].id, logs[activeLogIndex].answersRaw)}
+                              className="px-3 py-1 bg-[#6D44F1] hover:bg-[#5b38d1] text-white text-xs font-bold rounded-full transition-colors flex items-center gap-1 shadow-sm ml-1"
+                            >
+                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
+                              Soumettre
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
