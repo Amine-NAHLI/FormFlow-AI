@@ -1,5 +1,173 @@
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
+import Papa from 'papaparse';
+import { mean, median, standardDeviation, min, max, mode, sampleCorrelation, linearRegression, linearRegressionLine, rSquared } from 'simple-statistics';
+
+// ============================================================
+// FORMULES MATHÉMATIQUES PURES (Aucune IA ici, que des maths)
+// ============================================================
+
+interface ColumnStats {
+  name: string;
+  count: number;
+  mean: number;
+  median: number;
+  stddev: number;
+  min: number;
+  max: number;
+  mode: number;
+}
+
+interface CorrelationResult {
+  var1: string;
+  var2: string;
+  coefficient: number;
+  significance: string;
+  pValue: string;
+}
+
+interface FrequencyItem {
+  value: string;
+  count: number;
+  percentage: number;
+}
+
+interface CategoricalStats {
+  name: string;
+  totalResponses: number;
+  uniqueValues: number;
+  frequencies: FrequencyItem[];
+}
+
+/**
+ * Calcule les statistiques descriptives d'une colonne numérique.
+ * Formules utilisées :
+ * - Moyenne arithmétique : μ = (Σxi) / n
+ * - Médiane : valeur centrale de la série triée
+ * - Écart-type (population) : σ = √[ Σ(xi - μ)² / n ]
+ * - Mode : valeur la plus fréquente
+ */
+function computeDescriptiveStats(name: string, values: number[]): ColumnStats {
+  return {
+    name,
+    count: values.length,
+    mean: Math.round(mean(values) * 1000) / 1000,
+    median: Math.round(median(values) * 1000) / 1000,
+    stddev: Math.round(standardDeviation(values) * 1000) / 1000,
+    min: min(values),
+    max: max(values),
+    mode: mode(values),
+  };
+}
+
+/**
+ * Calcule le coefficient de corrélation de Pearson entre deux variables.
+ * Formule officielle :
+ *   r = Σ[(xi - x̄)(yi - ȳ)] / √[Σ(xi - x̄)² × Σ(yi - ȳ)²]
+ * 
+ * Interprétation standard (Cohen, 1988) :
+ *   |r| >= 0.7 → Forte corrélation
+ *   |r| >= 0.4 → Corrélation modérée
+ *   |r| >= 0.2 → Corrélation faible
+ *   |r| <  0.2 → Corrélation négligeable
+ *
+ * Calcul du t-statistic pour la p-value :
+ *   t = r × √(n-2) / √(1-r²)
+ *   Avec n-2 degrés de liberté
+ */
+function computeCorrelation(name1: string, values1: number[], name2: string, values2: number[]): CorrelationResult {
+  const n = Math.min(values1.length, values2.length);
+  const paired: [number, number][] = [];
+  for (let i = 0; i < n; i++) {
+    paired.push([values1[i], values2[i]]);
+  }
+
+  const r = Math.round(sampleCorrelation(paired.map(p => p[0]), paired.map(p => p[1])) * 1000) / 1000;
+  const absR = Math.abs(r);
+
+  // Calcul du t-statistic : t = r * sqrt(n-2) / sqrt(1-r²)
+  let pValueLabel = 'Non significatif (p > 0.05)';
+  if (n > 2 && absR < 1) {
+    const tStat = absR * Math.sqrt((n - 2) / (1 - r * r));
+    // Approximation simplifiée de la p-value via le t-statistic
+    // Pour n > 30, si |t| > 1.96 → p < 0.05, si |t| > 2.576 → p < 0.01
+    if (tStat > 3.291) pValueLabel = 'Très significatif (p < 0.001)';
+    else if (tStat > 2.576) pValueLabel = 'Significatif (p < 0.01)';
+    else if (tStat > 1.96) pValueLabel = 'Significatif (p < 0.05)';
+  }
+
+  let significance = 'Corrélation négligeable';
+  if (absR >= 0.7) significance = r > 0 ? 'Forte corrélation positive' : 'Forte corrélation négative';
+  else if (absR >= 0.4) significance = r > 0 ? 'Corrélation modérée positive' : 'Corrélation modérée négative';
+  else if (absR >= 0.2) significance = r > 0 ? 'Corrélation faible positive' : 'Corrélation faible négative';
+
+  return {
+    var1: name1,
+    var2: name2,
+    coefficient: r,
+    significance: `${significance} | ${pValueLabel}`,
+    pValue: pValueLabel,
+  };
+}
+
+/**
+ * Calcule les fréquences d'une colonne catégorielle (texte, choix multiples).
+ * - Comptage de chaque valeur unique
+ * - Pourcentage = (count / total) × 100
+ */
+function computeCategoricalStats(name: string, values: string[]): CategoricalStats {
+  const freq: Record<string, number> = {};
+  for (const v of values) {
+    const trimmed = v.trim();
+    if (trimmed) {
+      freq[trimmed] = (freq[trimmed] || 0) + 1;
+    }
+  }
+  
+  const total = values.filter(v => v.trim()).length;
+  const frequencies: FrequencyItem[] = Object.entries(freq)
+    .map(([value, count]) => ({
+      value,
+      count,
+      percentage: Math.round((count / total) * 10000) / 100,
+    }))
+    .sort((a, b) => b.count - a.count);
+
+  return {
+    name,
+    totalResponses: total,
+    uniqueValues: frequencies.length,
+    frequencies: frequencies.slice(0, 10), // Top 10
+  };
+}
+
+/**
+ * Régression Linéaire Simple (Moindres Carrés Ordinaires / OLS)
+ * Formules :
+ *   b = Σ[(xi - x̄)(yi - ȳ)] / Σ(xi - x̄)²
+ *   a = ȳ - b × x̄
+ *   R² = 1 - (SS_res / SS_tot)
+ */
+function computeLinearRegression(xValues: number[], yValues: number[]): {
+  slope: number;
+  intercept: number;
+  rSquared: number;
+} {
+  const regression = linearRegression(xValues.map((x, i) => [x, yValues[i]]));
+  const regressionLine = linearRegressionLine(regression);
+  const rSq = rSquared(xValues.map((x, i) => [x, yValues[i]]), regressionLine);
+  
+  return {
+    slope: Math.round(regression.m * 1000) / 1000,
+    intercept: Math.round(regression.b * 1000) / 1000,
+    rSquared: Math.round(rSq * 1000) / 1000,
+  };
+}
+
+
+// ============================================================
+// API ROUTE
+// ============================================================
 
 export async function POST(request: Request) {
   try {
@@ -12,83 +180,139 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Fichier ou clé API manquant' }, { status: 400 });
     }
 
-    const openai = new OpenAI({ apiKey });
+    // ---- ÉTAPE A : Lire le CSV localement ----
+    const csvText = await file.text();
+    const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true });
+    const rows = parsed.data as Record<string, string>[];
+    const headers = parsed.meta.fields || [];
 
-    // 1. Upload file to OpenAI
-    const uploadedFile = await openai.files.create({
-      file: file,
-      purpose: 'assistants',
-    });
-
-    // 2. Create Assistant
-    const assistant = await openai.beta.assistants.create({
-      name: "FormFlow Data Analyst",
-      instructions: `Tu es un Data Scientist expert (niveau Master SPSS/SmartPLS).
-Ton but est d'analyser ce fichier CSV (qui contient des réponses à un formulaire).
-Instructions supplémentaires de l'utilisateur : ${instructions || "Fais une analyse descriptive générale et trouve les corrélations principales."}
-
-Règle stricte: Tu dois renvoyer UNIQUEMENT un objet JSON valide (aucun texte avant ou après, pas de markdown \`\`\`json) avec cette structure exacte :
-{
-  "summary": "Résumé textuel de ton analyse en français (2-3 paragraphes clairs et pros)",
-  "statistics": [
-    { "name": "Ex: Age moyen", "value": "24.5", "interpretation": "La population est jeune" }
-  ],
-  "correlations": [
-    { "var1": "Nom Colonne 1", "var2": "Nom Colonne 2", "coefficient": 0.85, "significance": "Forte corrélation positive" }
-  ]
-}
-Tu DOIS utiliser l'outil Code Interpreter (Python) pour lire le fichier, nettoyer les données si besoin, et calculer les vraies statistiques (moyennes, écarts-types, corrélations de Pearson) avant de générer le JSON. Ne devine jamais les chiffres, calcule-les.`,
-      tools: [{ type: "code_interpreter" }],
-      model: "gpt-4o-mini", // Utilisation du modèle mini pour la rapidité
-    });
-
-    // 3. Create Thread & Run
-    const thread = await openai.beta.threads.create({
-      messages: [
-        {
-          role: "user",
-          content: "Analyse ce fichier de données et donne-moi le résultat au format JSON strict comme demandé.",
-          attachments: [{ file_id: uploadedFile.id, tools: [{ type: "code_interpreter" }] }]
-        }
-      ]
-    });
-
-    const run = await openai.beta.threads.runs.createAndPoll(
-      thread.id,
-      { assistant_id: assistant.id }
-    );
-
-    if (run.status === 'completed') {
-      const messages = await openai.beta.threads.messages.list(thread.id);
-      const lastMessage = messages.data[0];
-      let content = '';
-      if (lastMessage.content[0].type === 'text') {
-        content = lastMessage.content[0].text.value;
-      }
-
-      // Cleanup
-      // @ts-ignore
-      await openai.beta.assistants.del(assistant.id);
-      // @ts-ignore
-      await openai.files.del(uploadedFile.id);
-
-      // Clean markdown if present
-      content = content.replace(/```json\n?|\n?```/g, '').trim();
-
-      try {
-        const resultJson = JSON.parse(content);
-        return NextResponse.json({ success: true, data: resultJson });
-      } catch (e) {
-        console.error("JSON Parse error. Raw content:", content);
-        return NextResponse.json({ error: "L'IA n'a pas renvoyé un JSON valide." }, { status: 500 });
-      }
-
-    } else {
-      return NextResponse.json({ error: `L'analyse a échoué avec le statut: ${run.status}` }, { status: 500 });
+    if (rows.length === 0) {
+      return NextResponse.json({ error: 'Le fichier CSV est vide ou mal formaté.' }, { status: 400 });
     }
 
-  } catch (error: any) {
-    console.error("Analysis Error:", error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    // ---- ÉTAPE B : Séparer colonnes numériques / catégorielles ----
+    const numericColumns: Record<string, number[]> = {};
+    const categoricalColumns: Record<string, string[]> = {};
+
+    for (const header of headers) {
+      const rawValues = rows.map(r => r[header]?.trim()).filter(v => v !== undefined && v !== '');
+      const numericValues = rawValues.map(v => parseFloat(v.replace(',', '.'))).filter(v => !isNaN(v));
+
+      // Si >50% des valeurs sont numériques, on la considère numérique
+      if (numericValues.length > rawValues.length * 0.5 && numericValues.length >= 3) {
+        numericColumns[header] = numericValues;
+      } else if (rawValues.length > 0) {
+        categoricalColumns[header] = rawValues;
+      }
+    }
+
+    // ---- ÉTAPE C : Calculs Mathématiques Purs ----
+    
+    // C1. Statistiques descriptives
+    const descriptiveStats: ColumnStats[] = [];
+    for (const [name, values] of Object.entries(numericColumns)) {
+      descriptiveStats.push(computeDescriptiveStats(name, values));
+    }
+
+    // C2. Analyse des fréquences (catégoriel)
+    const categoricalResults: CategoricalStats[] = [];
+    for (const [name, values] of Object.entries(categoricalColumns)) {
+      categoricalResults.push(computeCategoricalStats(name, values));
+    }
+
+    // C3. Matrice de corrélations (toutes les paires numériques)
+    const numericKeys = Object.keys(numericColumns);
+    const correlations: CorrelationResult[] = [];
+    for (let i = 0; i < numericKeys.length; i++) {
+      for (let j = i + 1; j < numericKeys.length; j++) {
+        const corr = computeCorrelation(
+          numericKeys[i], numericColumns[numericKeys[i]],
+          numericKeys[j], numericColumns[numericKeys[j]]
+        );
+        if (!isNaN(corr.coefficient)) {
+          correlations.push(corr);
+        }
+      }
+    }
+    // Trier par force de corrélation
+    correlations.sort((a, b) => Math.abs(b.coefficient) - Math.abs(a.coefficient));
+
+    // C4. Régression linéaire (sur la paire la plus corrélée si elle existe)
+    let regressionResult = null;
+    if (correlations.length > 0) {
+      const best = correlations[0];
+      const xVals = numericColumns[best.var1];
+      const yVals = numericColumns[best.var2];
+      const minLen = Math.min(xVals.length, yVals.length);
+      regressionResult = {
+        ...computeLinearRegression(xVals.slice(0, minLen), yVals.slice(0, minLen)),
+        xVar: best.var1,
+        yVar: best.var2,
+      };
+    }
+
+    // ---- ÉTAPE D : Construire le résumé mathématique ----
+    const mathReport = {
+      totalRows: rows.length,
+      totalColumns: headers.length,
+      numericColumnsCount: numericKeys.length,
+      categoricalColumnsCount: Object.keys(categoricalColumns).length,
+      descriptiveStats,
+      categoricalResults: categoricalResults.slice(0, 5),
+      correlations: correlations.slice(0, 10),
+      regression: regressionResult,
+    };
+
+    // ---- ÉTAPE E : Envoyer les résultats exacts à l'IA pour rédaction ----
+    const openai = new OpenAI({ apiKey });
+    
+    const interpretationPrompt = `Tu es un Data Scientist expert. Voici les résultats EXACTS d'une analyse statistique calculée mathématiquement sur un jeu de données de ${rows.length} réponses à un formulaire.
+
+RÉSULTATS MATHÉMATIQUES OFFICIELS (calculés par le code, tu ne dois PAS les modifier) :
+${JSON.stringify(mathReport, null, 2)}
+
+Instructions supplémentaires de l'utilisateur : ${instructions || "Fais une interprétation générale."}
+
+Tâche : Rédige un rapport d'analyse en français (3-4 paragraphes) qui INTERPRÈTE ces résultats pour un humain non-expert. Explique ce que signifient les corrélations trouvées, les tendances dans les données, et les conclusions qu'on peut en tirer. Ne modifie JAMAIS les chiffres, cite-les exactement comme donnés.`;
+
+    const aiResponse = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: interpretationPrompt }],
+      temperature: 0.3,
+    });
+
+    const summary = aiResponse.choices[0].message.content || "Rapport non disponible.";
+
+    // ---- RÉPONSE FINALE ----
+    return NextResponse.json({
+      success: true,
+      data: {
+        summary,
+        statistics: descriptiveStats.map(s => ({
+          name: s.name,
+          value: `μ=${s.mean} | σ=${s.stddev} | Med=${s.median}`,
+          interpretation: `Min: ${s.min} → Max: ${s.max} | n=${s.count} | Mode: ${s.mode}`,
+        })),
+        correlations: correlations.slice(0, 10).map(c => ({
+          var1: c.var1,
+          var2: c.var2,
+          coefficient: c.coefficient,
+          significance: c.significance,
+        })),
+        categorical: categoricalResults.slice(0, 5),
+        regression: regressionResult,
+        meta: {
+          totalRows: rows.length,
+          totalColumns: headers.length,
+          numericColumns: numericKeys.length,
+          categoricalColumns: Object.keys(categoricalColumns).length,
+        },
+      },
+    });
+
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Erreur inconnue';
+    console.error("Analysis Error:", message);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }
