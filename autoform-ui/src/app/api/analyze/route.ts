@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 import OpenAI from 'openai';
 import Papa from 'papaparse';
-import { mean, median, standardDeviation, min, max, mode, sampleCorrelation, linearRegression, linearRegressionLine, rSquared } from 'simple-statistics';
+import { mean, median, standardDeviation, min, max, mode, sampleCorrelation, linearRegression, linearRegressionLine, rSquared, sampleVariance } from 'simple-statistics';
 
 // ============================================================
 // FORMULES MATHÉMATIQUES PURES (Aucune IA ici, que des maths)
@@ -164,6 +164,166 @@ function computeLinearRegression(xValues: number[], yValues: number[]): {
   };
 }
 
+/**
+ * Alpha de Cronbach (Fiabilité interne d'une échelle)
+ * Formule officielle (Cronbach, 1951) :
+ *   α = (k / (k-1)) × (1 - Σσ²ᵢ / σ²total)
+ * Où :
+ *   k = nombre d'items (colonnes numériques)
+ *   σ²ᵢ = variance de chaque item
+ *   σ²total = variance de la somme de tous les items
+ * 
+ * Interprétation (Nunnally & Bernstein, 1994) :
+ *   α >= 0.9 → Excellent
+ *   α >= 0.8 → Bon
+ *   α >= 0.7 → Acceptable
+ *   α >= 0.6 → Questionnable
+ *   α <  0.6 → Inacceptable
+ */
+function computeCronbachAlpha(columns: number[][]): { alpha: number; interpretation: string } {
+  const k = columns.length;
+  if (k < 2) return { alpha: 0, interpretation: 'Minimum 2 items requis' };
+
+  // Aligner les longueurs
+  const minLen = Math.min(...columns.map(c => c.length));
+  const trimmed = columns.map(c => c.slice(0, minLen));
+
+  // Variance de chaque item
+  const itemVariances = trimmed.map(col => sampleVariance(col));
+  const sumItemVariances = itemVariances.reduce((a, b) => a + b, 0);
+
+  // Calculer le score total (somme de chaque ligne)
+  const totalScores: number[] = [];
+  for (let i = 0; i < minLen; i++) {
+    let sum = 0;
+    for (let j = 0; j < k; j++) {
+      sum += trimmed[j][i];
+    }
+    totalScores.push(sum);
+  }
+  const totalVariance = sampleVariance(totalScores);
+
+  // α = (k / (k-1)) × (1 - Σσ²ᵢ / σ²total)
+  const alpha = totalVariance === 0 ? 0 : Math.round(((k / (k - 1)) * (1 - sumItemVariances / totalVariance)) * 1000) / 1000;
+
+  let interpretation = 'Inacceptable';
+  if (alpha >= 0.9) interpretation = 'Excellent';
+  else if (alpha >= 0.8) interpretation = 'Bon';
+  else if (alpha >= 0.7) interpretation = 'Acceptable';
+  else if (alpha >= 0.6) interpretation = 'Questionnable';
+
+  return { alpha, interpretation };
+}
+
+/**
+ * AVE (Average Variance Extracted) — Variance Moyenne Extraite
+ * Formule (Fornell & Larcker, 1981) :
+ *   AVE = Σ(loadingᵢ²) / k
+ * Où loadingᵢ = corrélation de chaque item avec le score total
+ * 
+ * Seuil : AVE >= 0.5 → La validité convergente est établie
+ */
+function computeAVE(columns: number[][]): { ave: number; interpretation: string } {
+  const k = columns.length;
+  if (k < 2) return { ave: 0, interpretation: 'Minimum 2 items requis' };
+
+  const minLen = Math.min(...columns.map(c => c.length));
+  const trimmed = columns.map(c => c.slice(0, minLen));
+
+  // Score total
+  const totalScores: number[] = [];
+  for (let i = 0; i < minLen; i++) {
+    let sum = 0;
+    for (let j = 0; j < k; j++) sum += trimmed[j][i];
+    totalScores.push(sum);
+  }
+
+  // Loading = corrélation de chaque item avec le total
+  let sumSquaredLoadings = 0;
+  for (let j = 0; j < k; j++) {
+    const loading = sampleCorrelation(trimmed[j], totalScores);
+    sumSquaredLoadings += loading * loading;
+  }
+
+  const ave = Math.round((sumSquaredLoadings / k) * 1000) / 1000;
+  return {
+    ave,
+    interpretation: ave >= 0.5 ? 'Validité convergente établie (AVE >= 0.5)' : 'Validité convergente insuffisante (AVE < 0.5)',
+  };
+}
+
+/**
+ * Validité Discriminante de Fornell-Larcker
+ * Règle : La racine carrée de l'AVE d'un construit doit être
+ *         supérieure à toutes ses corrélations avec les autres construits.
+ * √AVE > max(rᵢⱼ) → Validité discriminante confirmée
+ */
+function computeFornellLarcker(aveValue: number, maxCorrelation: number): { sqrtAVE: number; maxCorr: number; valid: boolean; interpretation: string } {
+  const sqrtAVE = Math.round(Math.sqrt(aveValue) * 1000) / 1000;
+  return {
+    sqrtAVE,
+    maxCorr: maxCorrelation,
+    valid: sqrtAVE > Math.abs(maxCorrelation),
+    interpretation: sqrtAVE > Math.abs(maxCorrelation)
+      ? `√AVE (${sqrtAVE}) > Corr max (${maxCorrelation}) → Validité discriminante CONFIRMÉE`
+      : `√AVE (${sqrtAVE}) ≤ Corr max (${maxCorrelation}) → Validité discriminante NON CONFIRMÉE`,
+  };
+}
+
+/**
+ * Bootstrapping (Rééchantillonnage)
+ * Méthode : Tirage aléatoire avec remise de n observations,
+ *           répété N fois (5000 itérations standard).
+ * Pour chaque itération, on recalcule la corrélation.
+ * On obtient un intervalle de confiance à 95% et un écart-type bootstrap.
+ */
+function computeBootstrap(xValues: number[], yValues: number[], iterations: number = 5000): {
+  originalR: number;
+  bootstrapMean: number;
+  bootstrapStdErr: number;
+  ci95Lower: number;
+  ci95Upper: number;
+} {
+  const n = Math.min(xValues.length, yValues.length);
+  const xTrimmed = xValues.slice(0, n);
+  const yTrimmed = yValues.slice(0, n);
+
+  const originalR = Math.round(sampleCorrelation(xTrimmed, yTrimmed) * 1000) / 1000;
+  const bootstrapCorrelations: number[] = [];
+
+  // Générateur pseudo-aléatoire simple (Mulberry32)
+  let seed = 42;
+  const random = () => {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    let t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  };
+
+  for (let iter = 0; iter < iterations; iter++) {
+    const xSample: number[] = [];
+    const ySample: number[] = [];
+    for (let i = 0; i < n; i++) {
+      const idx = Math.floor(random() * n);
+      xSample.push(xTrimmed[idx]);
+      ySample.push(yTrimmed[idx]);
+    }
+    try {
+      const r = sampleCorrelation(xSample, ySample);
+      if (!isNaN(r)) bootstrapCorrelations.push(r);
+    } catch { /* skip invalid samples */ }
+  }
+
+  bootstrapCorrelations.sort((a, b) => a - b);
+  const bLen = bootstrapCorrelations.length;
+  const ci95Lower = Math.round(bootstrapCorrelations[Math.floor(bLen * 0.025)] * 1000) / 1000;
+  const ci95Upper = Math.round(bootstrapCorrelations[Math.floor(bLen * 0.975)] * 1000) / 1000;
+  const bootstrapMean = Math.round(mean(bootstrapCorrelations) * 1000) / 1000;
+  const bootstrapStdErr = Math.round(standardDeviation(bootstrapCorrelations) * 1000) / 1000;
+
+  return { originalR, bootstrapMean, bootstrapStdErr, ci95Lower, ci95Upper };
+}
+
 
 // ============================================================
 // API ROUTE
@@ -251,6 +411,31 @@ export async function POST(request: Request) {
       };
     }
 
+    // C5. Alpha de Cronbach (fiabilité globale)
+    const allNumericArrays = Object.values(numericColumns);
+    const cronbach = computeCronbachAlpha(allNumericArrays);
+
+    // C6. AVE (Average Variance Extracted)
+    const aveResult = computeAVE(allNumericArrays);
+
+    // C7. Validité Discriminante (Fornell-Larcker)
+    const maxCorr = correlations.length > 0 ? Math.abs(correlations[0].coefficient) : 0;
+    const fornellLarcker = computeFornellLarcker(aveResult.ave, maxCorr);
+
+    // C8. Bootstrapping (5000 itérations sur la corrélation la plus forte)
+    let bootstrapResult = null;
+    if (correlations.length > 0) {
+      const best = correlations[0];
+      const xVals = numericColumns[best.var1];
+      const yVals = numericColumns[best.var2];
+      const minLen = Math.min(xVals.length, yVals.length);
+      bootstrapResult = {
+        ...computeBootstrap(xVals.slice(0, minLen), yVals.slice(0, minLen), 5000),
+        var1: best.var1,
+        var2: best.var2,
+      };
+    }
+
     // ---- ÉTAPE D : Construire le résumé mathématique ----
     const mathReport = {
       totalRows: rows.length,
@@ -261,6 +446,10 @@ export async function POST(request: Request) {
       categoricalResults: categoricalResults.slice(0, 5),
       correlations: correlations.slice(0, 10),
       regression: regressionResult,
+      cronbachAlpha: cronbach,
+      ave: aveResult,
+      fornellLarcker,
+      bootstrap: bootstrapResult,
     };
 
     // ---- ÉTAPE E : Envoyer les résultats exacts à l'IA pour rédaction ----
@@ -301,6 +490,10 @@ Tâche : Rédige un rapport d'analyse en français (3-4 paragraphes) qui INTERPR
         })),
         categorical: categoricalResults.slice(0, 5),
         regression: regressionResult,
+        cronbach,
+        ave: aveResult,
+        fornellLarcker,
+        bootstrap: bootstrapResult,
         meta: {
           totalRows: rows.length,
           totalColumns: headers.length,

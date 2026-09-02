@@ -231,6 +231,74 @@ export default function AnalysisPage() {
               </div>
             )}
 
+            {/* SmartPLS Metrics */}
+            {(results.cronbach || results.ave || results.fornellLarcker) && (
+              <div className="bg-white p-6 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100">
+                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-[#6D44F1]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                  Analyses SmartPLS (Fiabilit&eacute; &amp; Validit&eacute;)
+                </h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  {results.cronbach && (
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 text-center">
+                      <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Alpha de Cronbach</span>
+                      <span className="text-2xl font-black text-[#6D44F1] font-mono block">{results.cronbach.alpha}</span>
+                      <span className="text-xs font-semibold text-slate-500 mt-1 block">{results.cronbach.interpretation}</span>
+                    </div>
+                  )}
+                  {results.ave && (
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 text-center">
+                      <span className="text-xs font-bold text-slate-400 uppercase block mb-1">AVE (Variance Extraite)</span>
+                      <span className="text-2xl font-black text-[#6D44F1] font-mono block">{results.ave.ave}</span>
+                      <span className="text-xs font-semibold text-slate-500 mt-1 block">{results.ave.interpretation}</span>
+                    </div>
+                  )}
+                  {results.fornellLarcker && (
+                    <div className="p-4 bg-slate-50 rounded-xl border border-slate-100 text-center">
+                      <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Fornell-Larcker</span>
+                      <span className={`text-2xl font-black font-mono block ${results.fornellLarcker.valid ? 'text-green-600' : 'text-red-500'}`}>
+                        {results.fornellLarcker.valid ? 'Confirm\u00e9e' : 'Non confirm\u00e9e'}
+                      </span>
+                      <span className="text-xs font-semibold text-slate-500 mt-1 block">AVE={results.fornellLarcker.sqrtAVE} vs r={results.fornellLarcker.maxCorr}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Bootstrapping */}
+            {results.bootstrap && (
+              <div className="bg-white p-6 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100">
+                <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                  <svg className="w-5 h-5 text-[#6D44F1]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path></svg>
+                  Bootstrapping (5000 it&eacute;rations)
+                </h3>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-center">
+                    <span className="text-xs font-bold text-slate-400 uppercase block mb-1">r original</span>
+                    <span className="text-lg font-black text-[#6D44F1] font-mono">{results.bootstrap.originalR}</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-center">
+                    <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Moyenne Bootstrap</span>
+                    <span className="text-lg font-black text-[#6D44F1] font-mono">{results.bootstrap.bootstrapMean}</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-center">
+                    <span className="text-xs font-bold text-slate-400 uppercase block mb-1">Erreur Std</span>
+                    <span className="text-lg font-black text-[#6D44F1] font-mono">{results.bootstrap.bootstrapStdErr}</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-center">
+                    <span className="text-xs font-bold text-slate-400 uppercase block mb-1">IC 95% Bas</span>
+                    <span className="text-lg font-black text-[#6D44F1] font-mono">{results.bootstrap.ci95Lower}</span>
+                  </div>
+                  <div className="p-3 bg-slate-50 rounded-xl border border-slate-100 text-center">
+                    <span className="text-xs font-bold text-slate-400 uppercase block mb-1">IC 95% Haut</span>
+                    <span className="text-lg font-black text-[#6D44F1] font-mono">{results.bootstrap.ci95Upper}</span>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 mt-3 text-center">Variables : {results.bootstrap.var1} - {results.bootstrap.var2}</p>
+              </div>
+            )}
+
             {/* Chart */}
             {results.correlations && results.correlations.length > 0 && (
               <div className="bg-white p-6 rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] border border-slate-100 h-80">
