@@ -5,8 +5,60 @@ import * as cheerio from 'cheerio';
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const { apiKey, formUrl, instructions, personaHistory } = body;
+    const { 
+      apiKey, 
+      formUrl, 
+      instructions, 
+      personaHistory, 
+      generateOnly, 
+      submitOnly, 
+      answersRaw 
+    } = body;
 
+    // --- MODE 1: SOUMISSION MANUELLE UNIQUEMENT ---
+    if (submitOnly) {
+      if (!formUrl || !answersRaw) {
+        return NextResponse.json({ error: 'Missing formUrl or answersRaw' }, { status: 400 });
+      }
+
+      const response = await fetch(formUrl);
+      const html = await response.text();
+
+      const formActionMatch = html.match(/action="([^"]*formResponse)"/);
+      if (!formActionMatch) {
+        return NextResponse.json({ error: 'Cannot find form action URL' }, { status: 500 });
+      }
+      const formSubmitUrl = formActionMatch[1];
+
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(answersRaw)) {
+        if (Array.isArray(value)) {
+          value.forEach((v) => params.append(key, String(v)));
+        } else {
+          params.append(key, String(value));
+        }
+      }
+      
+      const fbzxMatch = html.match(/name="fbzx" value="([^"]*)"/);
+      const pageHistoryMatch = html.match(/name="pageHistory" value="([^"]*)"/);
+      if (fbzxMatch) params.append('fbzx', fbzxMatch[1]);
+      if (pageHistoryMatch) params.append('pageHistory', pageHistoryMatch[1]);
+
+      const submitResponse = await fetch(formSubmitUrl, {
+        method: 'POST',
+        body: params,
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded'
+        }
+      });
+
+      return NextResponse.json({
+        success: submitResponse.ok,
+        status: submitResponse.status
+      });
+    }
+
+    // --- MODE 2: GÉNÉRATION (et soumission optionnelle) ---
     if (!apiKey || !formUrl) {
       return NextResponse.json({ error: 'Missing apiKey or formUrl' }, { status: 400 });
     }
@@ -18,7 +70,7 @@ export async function POST(request: Request) {
     const html = await response.text();
     const $ = cheerio.load(html);
 
-    // 2. Extract FB_PUBLIC_LOAD_DATA_ (contains all questions and metadata)
+    // 2. Extract FB_PUBLIC_LOAD_DATA_
     const scriptTag = $('script').filter((_, el) => {
       return $(el).html()?.includes('var FB_PUBLIC_LOAD_DATA_ =') || false;
     }).html();
@@ -42,11 +94,11 @@ export async function POST(request: Request) {
     
     questionsList.forEach((q: any) => {
       const qTitle = q[1];
-      const qType = q[3]; // 0=Short, 1=Paragraph, 2=MultipleChoice, 3=Dropdown, 4=Checkboxes
+      const qType = q[3]; 
       const qData = q[4]?.[0];
       if (!qData) return;
       
-      const entryId = qData[0]; // e.g., 12345678 (used for entry.12345678)
+      const entryId = qData[0];
       const optionsData = qData[1] || [];
       const options = optionsData.map((opt: any) => opt[0]);
 
@@ -102,7 +154,27 @@ export async function POST(request: Request) {
 
     const answersJson = JSON.parse(answersRes.choices[0].message.content || '{}');
 
-    // 5. Submit the Form via HTTP POST
+    // Formatter pour l'affichage
+    const formattedAnswers = questions.map(q => {
+      const answer = answersJson[q.entryId];
+      return {
+        question: q.title,
+        answer: Array.isArray(answer) ? answer.join(', ') : answer || 'Non répondu'
+      };
+    });
+
+    // Si on demande juste la génération (Manual Mode)
+    if (generateOnly) {
+      return NextResponse.json({
+        success: true, // Génération réussie
+        persona,
+        answers: formattedAnswers,
+        answersRaw: answersJson, // Nécessaire pour la soumission future
+        status: 200
+      });
+    }
+
+    // --- MODE 3: GÉNÉRATION ET SOUMISSION (Auto Mode) ---
     const formActionMatch = html.match(/action="([^"]*formResponse)"/);
     if (!formActionMatch) {
       return NextResponse.json({ error: 'Cannot find form action URL' }, { status: 500 });
@@ -118,7 +190,6 @@ export async function POST(request: Request) {
       }
     }
     
-    // Add pageHistory and fbzx if necessary
     const fbzxMatch = html.match(/name="fbzx" value="([^"]*)"/);
     const pageHistoryMatch = html.match(/name="pageHistory" value="([^"]*)"/);
     if (fbzxMatch) params.append('fbzx', fbzxMatch[1]);
@@ -130,15 +201,6 @@ export async function POST(request: Request) {
       headers: {
         'Content-Type': 'application/x-www-form-urlencoded'
       }
-    });
-
-    // Formatter les réponses pour un affichage lisible côté client
-    const formattedAnswers = questions.map(q => {
-      const answer = answersJson[q.entryId];
-      return {
-        question: q.title,
-        answer: Array.isArray(answer) ? answer.join(', ') : answer || 'Non répondu'
-      };
     });
 
     return NextResponse.json({

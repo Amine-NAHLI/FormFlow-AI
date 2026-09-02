@@ -32,19 +32,26 @@ export default function Home() {
     }
 
     setIsLoading(true);
-    setStatus('Génération en cours...');
+    setStatus(isAuto ? 'Soumission automatique en cours...' : 'Génération des profils en cours...');
     setLogs([]);
 
     const personaHistory: string[] = [];
 
     for (let i = 0; i < numSubmissions; i++) {
-      setStatus(`Soumission ${i + 1} sur ${numSubmissions}...`);
+      setStatus(`Traitement ${i + 1} sur ${numSubmissions}...`);
       
       try {
+        // En mode manuel, on demande juste de générer
         const response = await fetch('/api/submit', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ apiKey, formUrl, instructions, personaHistory })
+          body: JSON.stringify({ 
+            apiKey, 
+            formUrl, 
+            instructions, 
+            personaHistory,
+            generateOnly: !isAuto // Si auto=false, on génère seulement
+          })
         });
 
         const data = await response.json();
@@ -54,10 +61,13 @@ export default function Home() {
         
         setLogs(prev => [
           {
-            id: i + 1,
+            id: Date.now() + i, // Unique ID
+            submissionNumber: i + 1,
             persona: data.persona,
             success: data.success,
+            status: isAuto ? (data.success ? 'success' : 'failed') : 'pending',
             answers: data.answers,
+            answersRaw: data.answersRaw, // Utile pour la soumission manuelle
             time: 'À l\'instant'
           },
           ...prev
@@ -73,19 +83,45 @@ export default function Home() {
     setStatus('Terminé !');
   };
 
+  const handleManualSubmit = async (logId: number, answersRaw: any) => {
+    // Mettre le log en chargement
+    setLogs(prev => prev.map(log => log.id === logId ? { ...log, status: 'submitting' } : log));
+
+    try {
+      const response = await fetch('/api/submit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          formUrl, 
+          submitOnly: true,
+          answersRaw 
+        })
+      });
+      
+      const data = await response.json();
+      
+      setLogs(prev => prev.map(log => 
+        log.id === logId 
+          ? { ...log, status: data.success ? 'success' : 'failed', success: data.success } 
+          : log
+      ));
+    } catch (err) {
+      console.error(err);
+      setLogs(prev => prev.map(log => log.id === logId ? { ...log, status: 'failed', success: false } : log));
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#F8F9FE] text-slate-800 font-sans selection:bg-[#6D44F1]/20">
       
-      {/* Header type Dashboard */}
       <header className="w-full bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-center md:justify-start">
         <h1 className="text-xl font-bold text-[#6D44F1]">FormFlow AI</h1>
       </header>
 
-      {/* Main Content */}
       <main className="max-w-7xl mx-auto p-6 md:p-10 flex flex-col lg:flex-row gap-8">
         
         {/* Left Column: Settings Card */}
-        <div className="w-full lg:w-[400px] flex-shrink-0">
+        <div className="w-full lg:w-[400px] shrink-0">
           <div className="bg-white rounded-2xl shadow-[0_8px_30px_rgb(0,0,0,0.04)] p-6 border border-slate-100">
             <h2 className="text-lg font-bold flex items-center gap-2 mb-6">
               <svg className="w-5 h-5 text-[#6D44F1]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"></path></svg>
@@ -93,7 +129,6 @@ export default function Home() {
             </h2>
 
             <div className="space-y-5">
-              {/* API Key */}
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">OpenAI API Key</label>
                 <div className="relative">
@@ -102,7 +137,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Form URL */}
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Google Form URL</label>
                 <div className="relative">
@@ -111,7 +145,6 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Instructions */}
               <div className="space-y-1.5 pt-2">
                 <div className="flex items-center justify-between">
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">AI Instructions (Persona Rules)</label>
@@ -124,7 +157,6 @@ export default function Home() {
                 <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} className="w-full p-3 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-[#6D44F1] focus:ring-1 focus:ring-[#6D44F1] transition-all resize-none" rows={4} placeholder="Define the persona base rules here... e.g. 'Act as a diverse set of tech industry professionals...'"></textarea>
               </div>
 
-              {/* Counts & Toggles */}
               <div className="flex items-center gap-4 pt-2">
                 <div className="flex-1 space-y-1.5">
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Submission Count</label>
@@ -141,17 +173,16 @@ export default function Home() {
                 </div>
               </div>
 
-              {/* Start Button */}
               <div className="pt-4">
                 <button 
                   onClick={handleSubmit} 
                   disabled={isLoading}
-                  className="w-full py-3 bg-gradient-to-r from-[#6D44F1] to-[#A66BFF] hover:from-[#5b38d1] hover:to-[#9154ea] text-white text-sm font-semibold rounded-xl shadow-[0_4px_14px_0_rgba(109,68,241,0.39)] transition-all transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                  className="w-full py-3 bg-linear-to-r from-[#6D44F1] to-[#A66BFF] hover:from-[#5b38d1] hover:to-[#9154ea] text-white text-sm font-semibold rounded-xl shadow-[0_4px_14px_0_rgba(109,68,241,0.39)] transition-all transform hover:-translate-y-0.5 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
                   {isLoading ? (
                     <><svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg> Processing...</>
                   ) : (
-                    <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> Start Automation</>
+                    <><svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg> {isAuto ? 'Start Automation' : 'Générer les Profils (Vérif)'}</>
                   )}
                 </button>
               </div>
@@ -181,33 +212,46 @@ export default function Home() {
               </div>
             )}
 
-            {logs.map((log, idx) => (
-              <div key={idx} className="bg-white rounded-2xl border border-slate-100 shadow-[0_4px_20px_rgb(0,0,0,0.03)] overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {logs.map((log) => (
+              <div key={log.id} className="bg-white rounded-2xl border border-slate-100 shadow-[0_4px_20px_rgb(0,0,0,0.03)] overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="p-5 flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-full bg-[#F8F7FA] border border-slate-100 flex items-center justify-center flex-shrink-0 mt-1">
+                  <div className="w-10 h-10 rounded-full bg-[#F8F7FA] border border-slate-100 flex items-center justify-center shrink-0 mt-1">
                     <svg className="w-5 h-5 text-[#6D44F1]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
                   </div>
                   <div className="flex-1">
                     <div className="flex items-start justify-between">
                       <div>
                         <h3 className="text-sm font-bold text-slate-800 mb-0.5 leading-snug">{log.persona}</h3>
-                        <p className="text-xs text-slate-400">Submitted {log.time}</p>
+                        <p className="text-xs text-slate-400">Généré pour la soumission #{log.submissionNumber}</p>
                       </div>
-                      <div className="ml-4 flex-shrink-0">
-                        {log.success ? (
+                      <div className="ml-4 shrink-0 flex items-center gap-2">
+                        {log.status === 'success' && (
                           <span className="px-2.5 py-1 bg-[#E8F0FE] text-[#2D82F6] text-xs font-bold rounded-full">Success</span>
-                        ) : (
+                        )}
+                        {log.status === 'failed' && (
                           <span className="px-2.5 py-1 bg-red-50 text-red-600 text-xs font-bold rounded-full">Failed</span>
+                        )}
+                        {log.status === 'submitting' && (
+                          <span className="px-2.5 py-1 bg-yellow-50 text-yellow-600 text-xs font-bold rounded-full animate-pulse">Envoi...</span>
+                        )}
+                        {log.status === 'pending' && (
+                          <button 
+                            onClick={() => handleManualSubmit(log.id, log.answersRaw)}
+                            className="px-3 py-1 bg-[#6D44F1] hover:bg-[#5b38d1] text-white text-xs font-bold rounded-full transition-colors flex items-center gap-1 shadow-sm"
+                          >
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
+                            Soumettre
+                          </button>
                         )}
                       </div>
                     </div>
                     
                     {log.answers && log.answers.length > 0 && (
                       <div className="mt-4 pt-4 border-t border-slate-50">
-                        <details className="group">
+                        <details className="group" open={log.status === 'pending'}>
                           <summary className="text-xs font-semibold text-[#6D44F1] cursor-pointer list-none flex items-center gap-1 hover:text-[#5b38d1]">
                             <svg className="w-4 h-4 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
-                            Voir les réponses détaillées
+                            Voir les réponses
                           </summary>
                           <ul className="mt-3 space-y-2">
                             {log.answers.map((ans: any, i: number) => (
