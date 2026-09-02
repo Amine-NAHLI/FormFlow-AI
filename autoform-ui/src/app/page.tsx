@@ -164,12 +164,15 @@ export default function Home() {
                 </div>
                 <div className="flex-1 flex flex-col items-end justify-center space-y-2 pt-1">
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Auto-Submit</label>
-                  <button 
-                    onClick={() => setIsAuto(!isAuto)} 
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${isAuto ? 'bg-[#6D44F1]' : 'bg-slate-300'}`}
-                  >
-                    <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${isAuto ? 'translate-x-6' : 'translate-x-1'}`} />
-                  </button>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input 
+                      type="checkbox" 
+                      className="sr-only peer" 
+                      checked={isAuto} 
+                      onChange={(e) => setIsAuto(e.target.checked)} 
+                    />
+                    <div className="w-11 h-6 bg-slate-300 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-[#6D44F1]"></div>
+                  </label>
                 </div>
               </div>
 
