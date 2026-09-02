@@ -159,8 +159,12 @@ export default function Home() {
   return (
     <div className="min-h-screen bg-[#F8F9FE] text-slate-800 font-sans selection:bg-[#6D44F1]/20">
       
-      <header className="w-full bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-center md:justify-start">
+      <header className="w-full bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
         <h1 className="text-xl font-bold text-[#6D44F1]">FormFlow AI</h1>
+        <Link href="/analysis" className="px-4 py-2 bg-[#F4F0FF] text-[#6D44F1] text-sm font-semibold rounded-lg hover:bg-[#E9E1FE] transition-colors flex items-center gap-2">
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+          Data Analyst
+        </Link>
       </header>
 
       <main className="max-w-7xl mx-auto p-6 md:p-10 flex flex-col lg:flex-row gap-8">
