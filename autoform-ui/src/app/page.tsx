@@ -75,7 +75,9 @@ export default function Home() {
 
       } catch (err: any) {
         console.error(err);
-        break;
+        setStatus(`Erreur : ${err.message}`);
+        setIsLoading(false);
+        return; // On arrête complètement
       }
     }
 
@@ -133,7 +135,7 @@ export default function Home() {
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wider">OpenAI API Key</label>
                 <div className="relative">
                   <svg className="w-4 h-4 text-slate-400 absolute left-3 top-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"></path></svg>
-                  <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-[#6D44F1] focus:ring-1 focus:ring-[#6D44F1] transition-all" placeholder="••••••••••••••••••••••••••" />
+                  <input type="password" value={apiKey} onChange={(e) => setApiKey(e.target.value)} className="w-full pl-9 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-[#6D44F1] focus:ring-1 focus:ring-[#6D44F1] transition-all" placeholder="sk-proj-..." />
                 </div>
               </div>
 
@@ -212,6 +214,30 @@ export default function Home() {
                 </div>
                 <h3 className="text-slate-800 font-bold mb-1">Aucune activité</h3>
                 <p className="text-slate-500 text-sm max-w-sm">Les profils générés et leurs réponses apparaîtront ici en temps réel lorsque l'automatisation démarrera.</p>
+              </div>
+            )}
+
+            {isLoading && (
+              <div className="bg-white rounded-2xl border border-slate-100 shadow-[0_4px_20px_rgb(0,0,0,0.03)] p-5 flex items-start gap-4 animate-pulse">
+                <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center shrink-0 mt-1">
+                  <svg className="w-5 h-5 text-slate-400 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+                </div>
+                <div className="flex-1">
+                  <div className="flex items-center justify-between">
+                    <div className="w-full">
+                      <div className="h-4 bg-slate-200 rounded w-1/2 mb-2"></div>
+                      <div className="h-3 bg-slate-100 rounded w-1/3"></div>
+                    </div>
+                    <div className="ml-4 shrink-0">
+                      <div className="h-6 w-20 bg-slate-100 rounded-full"></div>
+                    </div>
+                  </div>
+                  <div className="mt-6 space-y-3">
+                    <div className="h-3 bg-slate-50 rounded w-full"></div>
+                    <div className="h-3 bg-slate-50 rounded w-5/6"></div>
+                    <div className="h-3 bg-slate-50 rounded w-4/6"></div>
+                  </div>
+                </div>
               </div>
             )}
 
