@@ -12,6 +12,7 @@ export default function Home() {
   const [status, setStatus] = useState('Prêt à démarrer');
   const [isLoading, setIsLoading] = useState(false);
   const [logs, setLogs] = useState<any[]>([]);
+  const [activeLogIndex, setActiveLogIndex] = useState(0);
 
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -34,6 +35,7 @@ export default function Home() {
     setIsLoading(true);
     setStatus(isAuto ? 'Soumission automatique en cours...' : 'Génération des profils en cours...');
     setLogs([]);
+    setActiveLogIndex(0);
 
     const personaHistory: string[] = [];
 
@@ -59,19 +61,23 @@ export default function Home() {
 
         personaHistory.push(data.persona);
         
-        setLogs(prev => [
-          {
-            id: Date.now() + i, // Unique ID
-            submissionNumber: i + 1,
-            persona: data.persona,
-            success: data.success,
-            status: isAuto ? (data.success ? 'success' : 'failed') : 'pending',
-            answers: data.answers,
-            answersRaw: data.answersRaw, // Utile pour la soumission manuelle
-            time: 'À l\'instant'
-          },
-          ...prev
-        ]);
+        setLogs(prev => {
+          const newLogs = [
+            ...prev,
+            {
+              id: Date.now() + i, // Unique ID
+              submissionNumber: i + 1,
+              persona: data.persona,
+              success: data.success,
+              status: isAuto ? (data.success ? 'success' : 'failed') : 'pending',
+              answers: data.answers,
+              answersRaw: data.answersRaw, // Utile pour la soumission manuelle
+              time: 'À l\'instant'
+            }
+          ];
+          setActiveLogIndex(newLogs.length - 1);
+          return newLogs;
+        });
 
       } catch (err: any) {
         console.error(err);
@@ -241,8 +247,32 @@ export default function Home() {
               </div>
             )}
 
-            {logs.map((log) => (
-              <div key={log.id} className="bg-white rounded-2xl border border-slate-100 shadow-[0_4px_20px_rgb(0,0,0,0.03)] overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
+            {logs.length > 0 && (
+              <div className="flex items-center justify-between bg-white px-4 py-3 rounded-2xl border border-slate-100 shadow-[0_4px_20px_rgb(0,0,0,0.02)] mb-4">
+                <button 
+                  onClick={() => setActiveLogIndex(Math.max(0, activeLogIndex - 1))}
+                  disabled={activeLogIndex === 0}
+                  className="px-3 py-1.5 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-[#6D44F1] disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-semibold transition-colors flex items-center gap-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
+                  Précédent
+                </button>
+                <span className="text-sm font-bold text-slate-700">
+                  Profil {activeLogIndex + 1} <span className="text-slate-400 font-medium">/ {logs.length}</span>
+                </span>
+                <button 
+                  onClick={() => setActiveLogIndex(Math.min(logs.length - 1, activeLogIndex + 1))}
+                  disabled={activeLogIndex === logs.length - 1}
+                  className="px-3 py-1.5 bg-slate-50 text-slate-600 hover:bg-slate-100 hover:text-[#6D44F1] disabled:opacity-50 disabled:cursor-not-allowed rounded-lg text-sm font-semibold transition-colors flex items-center gap-1"
+                >
+                  Suivant
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
+                </button>
+              </div>
+            )}
+
+            {logs.length > 0 && logs[activeLogIndex] && (
+              <div key={logs[activeLogIndex].id} className="bg-white rounded-2xl border border-slate-100 shadow-[0_4px_20px_rgb(0,0,0,0.03)] overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="p-5 flex items-start gap-4">
                   <div className="w-10 h-10 rounded-full bg-[#F8F7FA] border border-slate-100 flex items-center justify-center shrink-0 mt-1">
                     <svg className="w-5 h-5 text-[#6D44F1]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
@@ -250,22 +280,22 @@ export default function Home() {
                   <div className="flex-1">
                     <div className="flex items-start justify-between">
                       <div>
-                        <h3 className="text-sm font-bold text-slate-800 mb-0.5 leading-snug">{log.persona}</h3>
-                        <p className="text-xs text-slate-400">Généré pour la soumission #{log.submissionNumber}</p>
+                        <h3 className="text-sm font-bold text-slate-800 mb-0.5 leading-snug whitespace-pre-wrap">{logs[activeLogIndex].persona}</h3>
+                        <p className="text-xs text-slate-400">Généré pour la soumission #{logs[activeLogIndex].submissionNumber}</p>
                       </div>
                       <div className="ml-4 shrink-0 flex items-center gap-2">
-                        {log.status === 'success' && (
+                        {logs[activeLogIndex].status === 'success' && (
                           <span className="px-2.5 py-1 bg-[#E8F0FE] text-[#2D82F6] text-xs font-bold rounded-full">Success</span>
                         )}
-                        {log.status === 'failed' && (
+                        {logs[activeLogIndex].status === 'failed' && (
                           <span className="px-2.5 py-1 bg-red-50 text-red-600 text-xs font-bold rounded-full">Failed</span>
                         )}
-                        {log.status === 'submitting' && (
+                        {logs[activeLogIndex].status === 'submitting' && (
                           <span className="px-2.5 py-1 bg-yellow-50 text-yellow-600 text-xs font-bold rounded-full animate-pulse">Envoi...</span>
                         )}
-                        {log.status === 'pending' && (
+                        {logs[activeLogIndex].status === 'pending' && (
                           <button 
-                            onClick={() => handleManualSubmit(log.id, log.answersRaw)}
+                            onClick={() => handleManualSubmit(logs[activeLogIndex].id, logs[activeLogIndex].answersRaw)}
                             className="px-3 py-1 bg-[#6D44F1] hover:bg-[#5b38d1] text-white text-xs font-bold rounded-full transition-colors flex items-center gap-1 shadow-sm"
                           >
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M5 13l4 4L19 7"></path></svg>
@@ -275,15 +305,15 @@ export default function Home() {
                       </div>
                     </div>
                     
-                    {log.answers && log.answers.length > 0 && (
+                    {logs[activeLogIndex].answers && logs[activeLogIndex].answers.length > 0 && (
                       <div className="mt-4 pt-4 border-t border-slate-50">
-                        <details className="group" open={log.status === 'pending'}>
+                        <details className="group" open={logs[activeLogIndex].status === 'pending'}>
                           <summary className="text-xs font-semibold text-[#6D44F1] cursor-pointer list-none flex items-center gap-1 hover:text-[#5b38d1]">
                             <svg className="w-4 h-4 transition-transform group-open:rotate-90" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5l7 7-7 7"></path></svg>
                             Voir les réponses
                           </summary>
                           <ul className="mt-3 space-y-2">
-                            {log.answers.map((ans: any, i: number) => (
+                            {logs[activeLogIndex].answers.map((ans: any, i: number) => (
                               <li key={i} className="text-xs bg-slate-50 p-2 rounded-lg border border-slate-100 flex flex-col gap-1">
                                 <span className="font-semibold text-slate-700">{ans.question}</span>
                                 <span className="text-slate-600 pl-2 border-l-2 border-[#A66BFF]">{ans.answer}</span>
@@ -296,7 +326,7 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-            ))}
+            )}
           </div>
         </div>
 
