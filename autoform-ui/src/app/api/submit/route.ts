@@ -79,7 +79,7 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Cannot parse Google Form data' }, { status: 500 });
     }
 
-    const jsonStringMatch = scriptTag.match(/var FB_PUBLIC_LOAD_DATA_ = (\[.*\]);/s);
+    const jsonStringMatch = scriptTag.match(/var FB_PUBLIC_LOAD_DATA_ = (\[[\s\S]*\]);/);
     if (!jsonStringMatch) {
       return NextResponse.json({ error: 'Failed to extract form JSON' }, { status: 500 });
     }
