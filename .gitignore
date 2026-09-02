@@ -1,0 +1,13 @@
+# Fichiers d'environnement (API keys)
+.env
+.env.*
+
+# Fichiers générés
+reponses.csv
+__pycache__/
+*.pyc
+
+# IDEs
+.vscode/
+.idea/
+.gemini/
