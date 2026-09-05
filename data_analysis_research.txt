@@ -1,0 +1,152 @@
+# 📊 FormFlow Data Analyst — Documentation Technique & Méthodologique Exhaustive (v2.0)
+
+Ce document détaille l'architecture modulaire, les formules mathématiques exactes et la conformité méthodologique du moteur d'analyse statistique de **FormFlow AI**, calibré selon les standards internationaux de psychométrie et d'économétrie (**SPSS v28**, **SmartPLS 4**, **R** et normes **APA 7**).
+
+---
+
+## 1. Architecture Modulaire & Principe d'Étanchéité Déterministe
+
+Le moteur statistique est hébergé dans `autoform-ui/src/lib/stats/` et fonctionne selon un principe fondamental : **zéro calcul probabiliste ou statistique n'est délégué à un Grand Modèle de Langage (LLM)**.
+
+```
+CSV Upload ──► ingestion.ts ──► orchestrator.ts ──► descriptive.ts (μ, σ, Skew, Kurt)
+                                                ──► reliability.ts (α, CR, r_rest, α_del)
+                                                ──► validity.ts (AVE, Fornell-Larcker)
+                                                ──► relations.ts (Pearson, Spearman, OLS, Chi²)
+                                                ──► bootstrap.ts (5000 itérations, Seed 42)
+                                                ──► math-utils.ts (Beta inc., Student t, Chi², F)
+                                                        │
+                                                        ▼
+                                            Deterministic JSON Payload
+                                                        │
+                                                        ▼
+                                          GPT-4o-mini (Vulgarisation Textuelle)
+```
+
+---
+
+## 2. Ingestion, Traitement des Valeurs Manquantes & Inversion d'Items (`ingestion.ts`)
+
+### 2.1 Détection Dynamique des Échelles
+* **Likert Scales :** Détectées automatiquement si les valeurs sont discrètes, entières, positives et bornées (ex: 1 à 5, 1 à 7, 1 à 10).
+* **Variables Continues :** Nombres réels à virgule flottante.
+* **Constantes & Identifiants :** Les colonnes sans variance ($\sigma = 0$) ou avec $N$ identifiants uniques sont isolées pour éviter les matrices singulières.
+
+### 2.2 Gestion des Valeurs Manquantes
+Trois stratégies paramétrables sont implémentées :
+1. **Suppression par observation (Listwise Deletion - Standard académique) :** Toute observation ayant une case vide dans les indicateurs analysés est retirée, garantissant un échantillon homogène pour toutes les matrices de covariance.
+2. **Imputation par la moyenne :** $x_{\text{imputé}} = \bar{x}_{\text{col}}$.
+3. **Imputation par la médiane :** Pour les distributions asymétriques.
+
+### 2.3 Inversion des Items Réciproques (Reverse-coded items)
+Pour les questions négatives dans une échelle positive :
+$$\text{item}_{\text{inversé}} = (\text{Scale}_{\max} + \text{Scale}_{\min}) - \text{valeur}$$
+Exemple sur échelle de 1 à 5 : un score de 1 devient 5, 2 devient 4, 3 reste 3.
+
+---
+
+## 3. Statistiques Descriptives & Moments d'Ordre Supérieur (`descriptive.ts`)
+
+Pour chaque variable numérique :
+* **Moyenne Arithmétique :** $\mu = \frac{1}{n}\sum_{i=1}^n x_i$
+* **Médiane :** Valeur centrale robuste aux points aberrants ($Q_2$).
+* **Quartiles ($Q_1, Q_3$) & Écart Interquartile (IQR) :**
+  - $Q_1$ : 25ème centile.
+  - $Q_3$ : 75ème centile.
+  - $\text{IQR} = Q_3 - Q_1$ : dispersion robuste non affectée par les valeurs extrêmes.
+* **Écart-type Corrigé (Sample Standard Deviation) :**
+  $$s = \sqrt{\frac{1}{n-1}\sum_{i=1}^n (x_i - \bar{x})^2}$$
+* **Asymétrie Échantillonnale (Fisher-Pearson Adjusted Skewness - Identique à SPSS / R) :**
+  $$g_1 = \frac{\sqrt{n(n-1)}}{n-2} \times \frac{\frac{1}{n}\sum (x_i - \bar{x})^3}{s^3}$$
+* **Aplatissement Échantillonnal / Excès de Kurtosis (SPSS / Excel) :**
+  $$\text{Kurt} = \frac{n(n+1)}{(n-1)(n-2)(n-3)}\sum \left(\frac{x_i - \bar{x}}{s}\right)^4 - \frac{3(n-1)^2}{(n-2)(n-3)}$$
+  *Pour une distribution gaussienne parfaite, l'excès de kurtosis vaut 0. Une variable est candidate à la normalité si $|g_1| \le 1.0$ et $|\text{Kurt}| \le 2.0$.*
+
+---
+
+## 4. Psychométrie Avancée & Fiabilité des Construits (`reliability.ts`)
+
+Conformément à la théorie classique des tests (TCT) et aux standards SmartPLS :
+
+### 4.1 Alpha de Cronbach ($\alpha$)
+$$\alpha = \frac{k}{k-1} \left( 1 - \frac{\sum_{j=1}^k s_j^2}{s_{\text{total}}^2} \right)$$
+Où $k$ est le nombre d'indicateurs du construit, $s_j^2$ la variance de l'item $j$, et $s_{\text{total}}^2$ la variance de la somme des scores.
+
+### 4.2 Corrélation Item-Reste Corrigée (Item-Rest Correlation $r_{it}$)
+Corrélation de Pearson entre l'item $j$ et la somme de tous les autres items du construit $(Total - Item_j)$. Tout item avec $r_{it} < 0.30$ est signalé comme détériorant l'échelle.
+
+### 4.3 Alpha si Item Supprimé ($\alpha_{\text{deleted}}$)
+Recalcul complet de l'Alpha sur les $k-1$ items restants. Si $\alpha_{\text{deleted}} > \alpha_{\text{global}}$, le chercheur est informé que supprimer cet item augmentera la fiabilité globale.
+
+### 4.4 Fiabilité Composée (Composite Reliability - Dillon-Goldstein's $\rho$)
+Plus robuste que le Cronbach quand les saturations factorielles ne sont pas strictement identiques ($\tau$-equivalence relâchée) :
+$$\text{CR} = \frac{\left(\sum \lambda_i\right)^2}{\left(\sum \lambda_i\right)^2 + \sum (1 - \lambda_i^2)}$$
+Où $\lambda_i$ représente le loading factoriel standardisé de chaque item.
+
+---
+
+## 5. Validité Convergente & Discriminante (`validity.ts`)
+
+### 5.1 AVE (Average Variance Extracted - Fornell & Larcker, 1981)
+$$\text{AVE} = \frac{\sum_{i=1}^k \lambda_i^2}{k}$$
+* **Seuil :** $\text{AVE} \ge 0.50$ atteste d'une validité convergente confirmée (le construit explique plus de 50% de la variance de ses indicateurs).
+
+### 5.2 Critère de Fornell-Larcker (Validité Discriminante)
+Pour chaque paire de construits $(C_1, C_2)$ :
+$$\sqrt{\text{AVE}_1} > |r_{12}| \quad \text{et} \quad \sqrt{\text{AVE}_2} > |r_{12}|$$
+La racine carrée de l'AVE de chaque construit doit être strictement supérieure à sa corrélation avec tout autre construit.
+
+---
+
+## 6. Analyse Relationnelle, p-values Exactes & Régression OLS (`relations.ts` & `math-utils.ts`)
+
+### 6.1 Corrélation de Pearson & Student's t Exact
+Pour tester $H_0: \rho = 0$ :
+$$t = |r| \sqrt{\frac{n-2}{1-r^2}} \quad \text{avec } df = n-2$$
+La $p$-value bilatérale exacte est calculée via la fonction bêta incomplète régularisée :
+$$p = I_{\frac{df}{df + t^2}}\left(\frac{df}{2}, \frac{1}{2}\right)$$
+Identique au résultat de `cor.test()` sous R ou de la commande `CORRELATIONS` sous SPSS.
+
+### 6.2 Corrélation de Rang de Spearman ($\rho$)
+Calculée avec attribution de rangs fractionnaires pour la gestion exacte des ex æquo (ties).
+
+### 6.3 Correction de Bonferroni pour Tests Multiples
+Pour contrôler le Family-Wise Error Rate (FWER) sur $M$ paires corrélées :
+$$p_{\text{Bonferroni}} = \min(1.0, \, p \times M)$$
+
+### 6.4 Régression Linéaire Multiple & Simple (MCO / OLS)
+Résolution matricielle exacte $\beta = (X^T X)^{-1} X^T Y$ avec pivot de Gauss-Jordan :
+* $R^2 = 1 - \frac{SS_{\text{res}}}{SS_{\text{tot}}}$
+* $R^2_{\text{ajusté}} = 1 - (1 - R^2)\frac{n-1}{n-p-1}$
+* Test ANOVA global : $F = \frac{(SS_{\text{tot}} - SS_{\text{res}})/p}{SS_{\text{res}}/(n-p-1)}$ avec $p$-value issue de la distribution de Fisher-Snedecor.
+* Coefficients $B$, erreurs types $SE(B)$, $t$-statistique, et coefficients standardisés $\beta = B \frac{s_x}{s_y}$.
+
+### 6.5 Test d'Indépendance du Chi-Deux ($\chi^2$) & V de Cramér
+Pour deux variables qualitatives :
+$$\chi^2 = \sum \frac{(O_{ij} - E_{ij})^2}{E_{ij}}, \quad df = (r-1)(c-1)$$
+$$V_{\text{Cramér}} = \sqrt{\frac{\chi^2}{n \cdot \min(r-1, c-1)}}$$
+P-value calculée via la fonction Gamma incomplète supérieure $Q(df/2, \chi^2/2)$.
+* **Règle de Cochran :** Détection automatique des effectifs théoriques $E_{ij} < 5$. Si au moins une cellule présente $E_{ij} < 5$, un avertissement méthodologique explicite est joint aux résultats sans altérer la statistique calculée.
+
+---
+
+## 7. Inférence Non-Paramétrique par Bootstrapping (`bootstrap.ts`)
+
+Pour valider la robustesse des estimateurs sans dépendre des hypothèses de normalité :
+* **Algorithme PRNG :** Mulberry32 initialisé avec une graine fixe (`Seed = 42`) pour assurer la reproductibilité scientifique d'une machine à l'autre.
+* **Itérations :** 5 000 tirages aléatoires avec remise ($B = 5000$).
+* **Intervalle de Confiance à 95% (Percentile CI) :**
+  $$IC_{95\%} = [\hat{\theta}^*_{(0.025 \times B)} \;;\; \hat{\theta}^*_{(0.975 \times B)}]$$
+  Si l'intervalle exclut la valeur nulle ($0$), l'hypothèse nulle est rejetée empiriquement avec un niveau de confiance de 95%.
+
+---
+
+## 8. Validation Croisée & Bancs d'Essais Automatisés (`tests/stats.test.ts`)
+
+La suite de tests unitaires valide la conformité des fonctions mathématiques :
+1. **$p$-values Student t :** comparées aux valeurs théoriques de R (`2*(1-pt(2.0, 10)) = 0.073387`).
+2. **$p$-values Chi-deux :** $\chi^2 = 5.991, df = 2 \implies p = 0.0500$.
+3. **Rangs Spearman avec ex æquo :** `[10, 20, 20, 30]` $\implies$ `[1, 2.5, 2.5, 4]`.
+4. **Alpha de Cronbach & AVE :** calculs concordants avec SmartPLS 4.
+5. **Inversion d'items Likert :** validation formelle de l'inversion d'échelle.
+6. **Reproductibilité du Bootstrapping :** égalité stricte au bit près sur 5 000 itérations.
